@@ -1,0 +1,17 @@
+{
+  "extends": "@humanish/typescript-config/bun.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "typeRoots": ["./node_modules/@types", "./types"]
+  },
+  "include": [
+    "src/**/*",
+    "routes/**/*",
+    "middleware/**/*",
+    "lib/**/*",
+    "types/**/*",
+    "generated/**/*"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

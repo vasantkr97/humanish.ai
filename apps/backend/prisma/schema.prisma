@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model Installation {
+  id              Int       @id @default(autoincrement())
+  installationId  Int       @unique
+  accountLogin    String    //github user name or organization name
+  accountType     String    // 'User' or 'Organization'
+  installedAt     DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime? 
+  
+  repositories    Repository[]
+}
+
+model Repository {
+  id             Int       @id @default(autoincrement())
+  githubId       Int       @unique //github's internal database id for the repo
+  name           String     //only the repository name
+  fullName       String    @unique //username and reponame that act as key
+  private        Boolean   @default(false)
+  addedAt        DateTime  @default(now())
+  removedAt      DateTime?
+
+  installationId Int
+  installation   Installation @relation(fields: [installationId], references: [installationId], onDelete: Cascade)
+
+  @@index([fullName])
+  @@index([installationId])
+}
+
+// User model - stores permanent user identity (survives Redis crashes)
+model User {
+  id              Int       @id @default(autoincrement())
+  githubId        Int       @unique  // GitHub's user ID (used to find user on login)
+  username        String    @unique  // GitHub username
+  email           String               // User's email address
+  name            String?              // Display name (can be null)
+  avatar          String               // Profile picture URL
+  profileUrl      String               // GitHub profile URL
+
+  // Timestamps
+  createdAt       DateTime  @default(now())  // When user first signed up
+  updatedAt       DateTime  @updatedAt       // Last profile update
+  lastLoginAt     DateTime?                  // Last login time (for analytics)
+
+  // Indexes for fast lookups
+  @@index([githubId])   // Fast lookup by GitHub ID during OAuth
+  @@index([username])   // Fast lookup by username
+}
