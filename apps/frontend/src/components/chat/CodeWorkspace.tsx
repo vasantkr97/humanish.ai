@@ -1,0 +1,81 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import E2BSandbox from "./Sandbox";
+import GitDiff from "./GitDiff";
+import { ExternalLink, ArrowLeft } from "lucide-react";
+import { Job } from "@/types";
+
+interface CodeWorkspaceProps {
+  jobId: string;
+  status: Job | null;
+  isCompleted: boolean;
+  prUrl?: string;
+  token: string | null;
+}
+
+const CodeWorkspace = ({
+  jobId,
+  status,
+  isCompleted,
+  prUrl,
+  token,
+}: CodeWorkspaceProps) => {
+  const [activeTab, setActiveTab] = useState("sandbox");
+  const router = useRouter();
+
+  return (
+    <div className="flex-1 h-full p-4 md:p-8 bg-background flex flex-col overflow-hidden">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 flex flex-col overflow-hidden"
+      >
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+          <TabsList>
+            <TabsTrigger value="sandbox">Sandbox</TabsTrigger>
+            <TabsTrigger value="diff">Git Diff</TabsTrigger>
+          </TabsList>
+
+          <div className="flex gap-3">
+            {isCompleted && prUrl && (
+              <Button
+                variant="default"
+                size="sm"
+                className="rounded-full"
+                onClick={() => window.open(prUrl, "_blank")}
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                View Pull Request
+              </Button>
+            )}
+            {isCompleted && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                onClick={() => router.push("/dashboard")}
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Dashboard
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <TabsContent value="sandbox" className="flex-1 mt-0 overflow-hidden">
+          <E2BSandbox jobId={jobId} token={token} />
+        </TabsContent>
+
+        <TabsContent value="diff" className="flex-1 mt-0 overflow-hidden">
+          <GitDiff jobId={jobId} token={token} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+};
+
+export default CodeWorkspace;
