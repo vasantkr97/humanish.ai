@@ -1,0 +1,178 @@
+name: Continous Deployment
+
+on:
+    push:
+        branches:
+            - main
+jobs:
+    build-and-deploy:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+            
+            
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                username: ${{ secrets.DOCKER_HUB_USERNAME }}
+                password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v5
+              with:
+                context: .
+                file: ./Dockerfile
+                push: true
+                tags: deepakveluvolu/100xswe:latest
+            - name: Ensure Docker is installed
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                host: ${{ secrets.SSH_HOST }}
+                username: ${{ secrets.SSH_USERNAME }}
+                key: ${{ secrets.SSH_KEY }}
+                debug: true
+                script: |
+                  if ! command -v docker &> /dev/null; then
+                    echo "Installing Docker..."
+                    curl -fsSL https://get.docker.com -o get-docker.sh
+                    sudo sh get-docker.sh
+                    sudo usermod -aG docker $USER
+                  fi
+
+                  if ! docker compose version &>/dev/null && ! docker-compose version &>/dev/null; then
+                    echo "Installing Docker Compose..."
+                    sudo curl -L "https://github.com/docker/compose/releases/download/v2.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+                    sudo chmod +x /usr/local/bin/docker-compose
+                  fi
+            - name: Deploy to server
+              uses: appleboy/ssh-action@v1.0.3
+              with:
+                host: ${{ secrets.SSH_HOST }}
+                username: ${{ secrets.SSH_USERNAME }}
+                key: ${{ secrets.SSH_KEY }}
+                script: |
+                  set -e
+                  echo "Navigating to project directory..."
+                  mkdir -p ~/100xswe
+                  cd ~/100xswe
+
+                  echo "Writing .env file"
+                  cat > .env << EOF
+                  DATABASE_URL=${{ secrets.DATABASE_URL }}
+                  DOCKER_HUB_PASSWORD=${{ secrets.DOCKER_HUB_PASSWORD }}
+                  DOCKER_HUB_USERNAME=${{ secrets.DOCKER_HUB_USERNAME }}
+                  E2B_API_KEY=${{ secrets.E2B_API_KEY }}
+                  E2B_TEMPLATE_ID=${{ secrets.E2B_TEMPLATE_ID }}
+                  FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+                  GOOGLE_GENERATIVE_AI_API_KEY=${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+                  INCREMENTAL_THRESHOLD=${{ secrets.INCREMENTAL_THRESHOLD }}
+                  JWT_SECRET=${{ secrets.JWT_SECRET }}
+                  MY_GITHUB_ACCESS_TOKEN=${{ secrets.MY_GITHUB_ACCESS_TOKEN }}
+                  MY_GITHUB_APP_ID=${{ secrets.MY_GITHUB_APP_ID }}
+                  MY_GITHUB_CALLBACK_URL=${{ secrets.MY_GITHUB_CALLBACK_URL }}
+                  MY_GITHUB_CLIENT_ID=${{ secrets.MY_GITHUB_CLIENT_ID }}
+                  MY_GITHUB_CLIENT_SECRET=${{ secrets.MY_GITHUB_CLIENT_SECRET }}
+                  MY_GITHUB_WEBHOOK_SECRET=${{ secrets.MY_GITHUB_WEBHOOK_SECRET }}
+                  MY_GIT_AUTHOR_EMAIL=${{ secrets.MY_GIT_AUTHOR_EMAIL }}
+                  MY_GITHUB_APP_PRIVATE_KEY=${{ secrets.MY_GITHUB_APP_PRIVATE_KEY }}
+                  MY_GIT_AUTHOR_NAME=${{ secrets.MY_GIT_AUTHOR_NAME }}
+                  PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}
+                  PINECONE_HOST=${{ secrets.PINECONE_HOST }}
+                  PORT=${{ secrets.PORT }}
+                  REDIS_HOST=${{ secrets.REDIS_HOST }}
+                  REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+                  REDIS_PORT=${{ secrets.REDIS_PORT }}
+                  SESSION_EXPIRE_DAYS=${{ secrets.SESSION_EXPIRE_DAYS }}
+                  LANGCHAIN_TRACING_V2=${{ secrets.LANGCHAIN_TRACING_V2 }}
+                  LANGCHAIN_API_KEY=${{ secrets.LANGCHAIN_API_KEY }}
+                  LANGCHAIN_PROJECT=${{ secrets.LANGCHAIN_PROJECT }}
+                  EOF
+
+                  echo "Writing docker-compose.yml file"
+                  cat > docker-compose.yml << 'COMPOSE_EOF'
+                  services:
+                    redis:
+                      image: redis:7-alpine
+                      ports:
+                        - "6379:6379"
+                      volumes:
+                        - redis_data:/data
+                      command: redis-server --appendonly yes
+                      restart: unless-stopped
+                      dns:
+                        - 8.8.8.8
+                        - 8.8.4.4
+                        - 1.1.1.1
+                      networks:
+                        - humanish-network
+                      healthcheck:
+                        test: ["CMD", "redis-cli", "ping"]
+                        interval: 10s
+                        timeout: 3s
+                        retries: 3
+
+                    backend:
+                      image: deepakveluvolu/100xswe:latest
+                      env_file: .env
+                      environment:
+                        - REDIS_HOST=redis
+                        - REDIS_PORT=6379
+                        - PORT=8000
+                      ports:
+                        - "8000:8000"
+                      restart: unless-stopped
+                      dns:
+                        - 8.8.8.8
+                        - 8.8.4.4
+                        - 1.1.1.1
+                      networks:
+                        - humanish-network
+                      depends_on:
+                        redis:
+                          condition: service_healthy
+                        worker:
+                          condition: service_started
+                      command: ["bun", "run", "--filter=@humanish/backend", "start"]
+
+                    worker:
+                      image: deepakveluvolu/100xswe:latest
+                      env_file: .env
+                      environment:
+                        - REDIS_HOST=redis
+                        - REDIS_PORT=6379
+                      restart: unless-stopped
+                      dns:
+                        - 8.8.8.8
+                        - 8.8.4.4
+                        - 1.1.1.1
+                      networks:
+                        - humanish-network
+                      depends_on:
+                        redis:
+                          condition: service_healthy
+                      command: ["bun", "run", "--filter=@humanish/worker", "start"]
+
+                  networks:
+                    humanish-network:
+                      driver: bridge
+
+                  volumes:
+                    redis_data:
+                      driver: local
+                  COMPOSE_EOF
+
+                  echo "Pulling latest Docker image..."
+                  docker pull deepakveluvolu/100xswe:latest
+
+                  echo "Deploying services..."
+                  docker compose down
+                  docker compose up -d
+
+                  echo "Cleaning up old images..."
+                  docker image prune -af
+
+                  echo "Deployment complete!"
+                  docker compose ps

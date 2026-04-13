@@ -9,7 +9,7 @@ interface PineconeVector {
 export class VectorDBService {
   private pinecone: Pinecone | null = null;
   private index: any = null;
-  private readonly INDEX_NAME = "humanish-code-index";
+  private readonly INDEX_NAME = "humanish-index";
   private namespace: string = "code-chunks";
   private readonly HOST_URL = process.env.PINECONE_HOST;
 

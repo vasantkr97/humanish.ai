@@ -1,6 +1,6 @@
-# 100xSWE
+# Humanish.ai
 
-![100xSWE](apps/frontend/public/Architecture.png)
+![Humanish.ai](apps/frontend/public/Architecture.png)
 
 ### AI-Powered Software Engineering Agent
 
@@ -29,7 +29,7 @@ An intelligent autonomous agent that understands your codebase, identifies relev
 
 ## Overview
 
-100xSWE is an autonomous software engineering agent that combines advanced AI techniques to understand and modify codebases intelligently. It uses a sophisticated pipeline that includes:
+Humanish.ai is an autonomous software engineering agent that combines advanced AI techniques to understand and modify codebases intelligently. It uses a sophisticated pipeline that includes:
 
 - **Hybrid Search**: Combining BM25 (keyword-based) and vector embeddings (semantic) for optimal code retrieval
 - **AST Analysis**: Understanding code structure and dependencies using Abstract Syntax Trees
