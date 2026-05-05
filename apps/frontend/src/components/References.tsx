@@ -64,7 +64,7 @@ const references: Reference[] = [
     items: [
       {
         title: "View on GitHub",
-        url: "https://github.com/Deepak7704/100xSWE",
+        url: "https://github.com/Deepak7704/humanish",
       },
     ],
     image: architecture,
@@ -162,3 +162,4 @@ const References = () => {
 };
 
 export default References;
+

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface JobStatus {
   jobId: string;
@@ -15,6 +15,8 @@ export function useJobStatus(jobId: string | null, token: string | null) {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentDelayRef = useRef(10000); // Start at 10s
 
   useEffect(() => {
     if (!jobId || !token) {
@@ -23,7 +25,19 @@ export function useJobStatus(jobId: string | null, token: string | null) {
     }
 
     const backendUrl =
-      process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+      process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+
+    const stopPolling = () => {
+      if (intervalRef.current) {
+        clearTimeout(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+
+    const scheduleNext = (delay: number) => {
+      stopPolling();
+      intervalRef.current = setTimeout(fetchStatus, delay);
+    };
 
     const fetchStatus = async () => {
       try {
@@ -38,6 +52,16 @@ export function useJobStatus(jobId: string | null, token: string | null) {
           `[useJobStatus] Response status: ${response.status} ${response.statusText}`
         );
 
+        if (response.status === 429) {
+          // Rate limited — back off exponentially up to 60s
+          currentDelayRef.current = Math.min(currentDelayRef.current * 2, 60000);
+          console.warn(
+            `[useJobStatus] Rate limited (429). Backing off to ${currentDelayRef.current / 1000}s`
+          );
+          scheduleNext(currentDelayRef.current);
+          return;
+        }
+
         if (!response.ok) {
           const errorText = await response.text();
           console.error(
@@ -48,18 +72,23 @@ export function useJobStatus(jobId: string | null, token: string | null) {
           );
         }
 
+        // Success — reset delay back to normal
+        currentDelayRef.current = 10000;
+
         const data = await response.json();
         console.log(
           `[useJobStatus] Job state: ${data.state}, progress: ${data.progress}`
         );
 
         setStatus(data);
-        setError(null); // Clear any previous errors
+        setError(null);
         setIsLoading(false);
 
         if (data.state === "completed" || data.state === "failed") {
           console.log(`[useJobStatus] Job ${data.state}, stopping polling`);
-          clearInterval(intervalId);
+          stopPolling();
+        } else {
+          scheduleNext(currentDelayRef.current);
         }
       } catch (err) {
         const errorMessage =
@@ -69,20 +98,20 @@ export function useJobStatus(jobId: string | null, token: string | null) {
         setIsLoading(false);
         if (errorMessage.includes("404")) {
           console.log(
-            `[useJobStatus] Job not found (404), stopping polling. Job may have been removed from queue.`
+            `[useJobStatus] Job not found (404), stopping polling.`
           );
-          clearInterval(intervalId);
+          stopPolling();
+        } else {
+          // Retry after backoff
+          scheduleNext(currentDelayRef.current);
         }
       }
     };
 
     fetchStatus();
-    const intervalId = setInterval(fetchStatus, 5000); // Reduced from 2000ms to 5000ms
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      stopPolling();
     };
   }, [jobId, token]);
 

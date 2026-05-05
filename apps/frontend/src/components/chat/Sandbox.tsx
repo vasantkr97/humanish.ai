@@ -65,7 +65,7 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
     if (!jobId || !token) return;
 
     const backendUrl =
-      process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+      process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
     const fetchJobStatus = async () => {
       try {
@@ -231,3 +231,4 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
 };
 
 export default E2BSandbox;
+

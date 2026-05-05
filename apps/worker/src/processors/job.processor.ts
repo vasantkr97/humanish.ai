@@ -249,6 +249,34 @@ export class JobProcessor {
                   repoPath
                 )
               : new Map<string, string>();
+
+          // Filter out empty files — the LLM cannot meaningfully modify a 0-char file
+          const emptyFiles: string[] = [];
+          fileContents.forEach((content, path) => {
+            if (content.trim().length === 0) {
+              emptyFiles.push(path);
+            }
+          });
+
+          if (emptyFiles.length > 0) {
+            console.log(`\nStep 6.6: Filtering out ${emptyFiles.length} empty file(s):`);
+            emptyFiles.forEach((f) => {
+              console.log(`  ✗ Skipping (empty): ${f}`);
+              fileContents.delete(f);
+            });
+            filesToModify = filesToModify.filter(
+              (f) => !emptyFiles.some((ef) => ef.endsWith(f) || f.endsWith(ef))
+            );
+            console.log(`  Remaining files to modify: ${filesToModify.length}`);
+          }
+
+          if (filesToModify.length === 0 && newFiles.length === 0) {
+            throw new Error(
+              "All selected files are empty — there is no existing code to modify. " +
+              "Please index the repository and try a more specific task."
+            );
+          }
+
           const allFiles = await this.sandboxService.getFileTree(
             sandbox,
             repoPath

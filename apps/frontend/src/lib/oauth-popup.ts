@@ -40,7 +40,7 @@ export function openOAuthPopup(url: string): Promise<OAuthResult> {
       // Verify origin for security
       const allowedOrigins = [
         window.location.origin,
-        process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app",
+        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000",
       ];
 
       if (!allowedOrigins.some((origin) => event.origin.startsWith(origin))) {
@@ -82,3 +82,4 @@ export function openOAuthPopup(url: string): Promise<OAuthResult> {
     );
   });
 }
+

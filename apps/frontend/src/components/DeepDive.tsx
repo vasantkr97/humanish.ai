@@ -48,7 +48,7 @@ function ComparisonTable() {
         <div className="p-2 sm:p-3 border-r border-gray-700 text-center">
           Grep Only
         </div>
-        <div className="p-2 sm:p-3 text-center">100xSWE</div>
+        <div className="p-2 sm:p-3 text-center">humanish</div>
       </div>
       {[
         ["Semantic understanding", "✗", "✓"],
@@ -239,7 +239,7 @@ export default function DeepDive() {
           <div className="border-2 border-black p-4 sm:p-5 bg-gray-50">
             <h4 className="font-bold mb-3 flex items-center gap-2">
               <Zap className="w-4 h-4" />
-              How 100xSWE works
+              How humanish works
             </h4>
             <ul className="space-y-2 text-sm text-gray-700">
               <li className="flex items-start gap-2">
@@ -664,3 +664,4 @@ function OptCard({
     </div>
   );
 }
+

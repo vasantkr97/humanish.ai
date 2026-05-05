@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import octopusLogo from "@/assets/octopus.png";
 import MobileMenu from "@/components/MobileMenu";
 import Image from "next/image";
+import AuthModal from "@/components/AuthModal";
 
 const navVariants = {
   hidden: { y: -100, opacity: 0 },
@@ -32,87 +34,96 @@ const itemVariants = {
 };
 
 const Navbar = () => {
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   return (
-    <motion.nav
-      className="fixed top-0 left-0 right-0 z-50 w-full"
-      initial="hidden"
-      animate="visible"
-      variants={navVariants}
-    >
-      <div className="flex items-center justify-between border-b border-gray-200/60 bg-white/95 backdrop-blur-sm px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
-        <motion.div
-          className="flex items-center gap-3"
-          variants={itemVariants}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.2 }}
-        >
-          <Image src={octopusLogo} alt="100xSWE Logo" width={40} height={40} />
-          <span className="font-sans font-bold text-foreground text-xl">
-            100xSWE
-          </span>
-        </motion.div>
-
-        <motion.div
-          className="hidden lg:flex flex-1 items-center justify-center font-sans font-medium text-base gap-10"
-          initial="hidden"
-          animate="visible"
-          variants={{
-            hidden: { opacity: 0 },
-            visible: {
-              opacity: 1,
-              transition: {
-                staggerChildren: 0.1,
-                delayChildren: 0.3,
-              },
-            },
-          }}
-        >
-          <motion.div variants={itemVariants}>
-            <Link
-              href="/"
-              className="hover:text-muted-foreground transition-colors"
-            >
-              Home
-            </Link>
-          </motion.div>
-          <motion.div variants={itemVariants}>
-            <a
-              href="/documentation"
-              className="hover:text-muted-foreground transition-colors"
-            >
-              Documentation
-            </a>
-          </motion.div>
-          <motion.div variants={itemVariants}>
-            <Link
-              href="/dashboard"
-              className="hover:text-muted-foreground transition-colors"
-            >
-              Dashboard
-            </Link>
-          </motion.div>
-        </motion.div>
-
-        <motion.div
-          variants={itemVariants}
-          initial="hidden"
-          animate="visible"
-          transition={{ delay: 0.5 }}
-        >
-          <Button
-            variant="cta"
-            size="default"
-            className="rounded-full hidden lg:block"
-            onClick={() => window.open("https://github.com/signup", "_blank")}
+    <>
+      <motion.nav
+        className="fixed top-0 left-0 right-0 z-50 w-full"
+        initial="hidden"
+        animate="visible"
+        variants={navVariants}
+      >
+        <div className="flex items-center justify-between border-b border-gray-200/60 bg-white/95 backdrop-blur-sm px-4 sm:px-8 lg:px-12 py-3 sm:py-4">
+          <motion.div
+            className="flex items-center gap-3"
+            variants={itemVariants}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.2 }}
           >
-            Sign Up
-          </Button>
-        </motion.div>
+            <Image src={octopusLogo} alt="humanish Logo" width={40} height={40} />
+            <span className="font-sans font-bold text-foreground text-xl">
+              humanish
+            </span>
+          </motion.div>
 
-        <MobileMenu />
-      </div>
-    </motion.nav>
+          <motion.div
+            className="hidden lg:flex flex-1 items-center justify-center font-sans font-medium text-base gap-10"
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.1,
+                  delayChildren: 0.3,
+                },
+              },
+            }}
+          >
+            <motion.div variants={itemVariants}>
+              <Link
+                href="/"
+                className="hover:text-muted-foreground transition-colors"
+              >
+                Home
+              </Link>
+            </motion.div>
+            <motion.div variants={itemVariants}>
+              <a
+                href="/documentation"
+                className="hover:text-muted-foreground transition-colors"
+              >
+                Documentation
+              </a>
+            </motion.div>
+            <motion.div variants={itemVariants}>
+              <Link
+                href="/dashboard"
+                className="hover:text-muted-foreground transition-colors"
+              >
+                Dashboard
+              </Link>
+            </motion.div>
+          </motion.div>
+
+          <motion.div
+            variants={itemVariants}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.5 }}
+          >
+            <Button
+              variant="cta"
+              size="default"
+              className="rounded-full hidden lg:block"
+              onClick={() => setIsAuthModalOpen(true)}
+            >
+              Sign Up
+            </Button>
+          </motion.div>
+
+          <MobileMenu />
+        </div>
+      </motion.nav>
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+      />
+    </>
   );
 };
 

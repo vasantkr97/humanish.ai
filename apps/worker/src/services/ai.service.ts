@@ -359,7 +359,11 @@ YOUR OUTPUT (file paths only):`;
   ): string {
     let filesToModifySection = "";
     fileContents.forEach((content, path) => {
-      filesToModifySection += `\n=== FILE: ${path} ===\n\`\`\`\n${content}\n\`\`\`\n\n`;
+      const isEmpty = content.trim().length === 0;
+      const emptyWarning = isEmpty
+        ? `\n⚠️ WARNING: This file is EMPTY (0 characters). You MUST use 'rewriteFile' for this file — do NOT use 'updateFile' with searchReplace because there is nothing to search for.\n`
+        : "";
+      filesToModifySection += `\n=== FILE: ${path} ===${emptyWarning}\n\`\`\`\n${content}\n\`\`\`\n\n`;
     });
 
     let newFilesSection = "";

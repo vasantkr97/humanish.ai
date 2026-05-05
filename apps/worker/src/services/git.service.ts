@@ -106,10 +106,10 @@ export class GitService {
     const escapedCommitMessage = commitMessage.replace(/'/g, "'\\''");
 
     await sandbox.commands.run(
-      `cd '${escapedRepoPath}' && git config user.email "bot@100xswe.com"`
+      `cd '${escapedRepoPath}' && git config user.email "bot@humanish.com"`
     );
     await sandbox.commands.run(
-      `cd '${escapedRepoPath}' && git config user.name "100xSWE Bot"`
+      `cd '${escapedRepoPath}' && git config user.name "humanish Bot"`
     );
 
     await sandbox.commands.run(
@@ -117,6 +117,20 @@ export class GitService {
     );
 
     await sandbox.commands.run(`cd '${escapedRepoPath}' && git add .`);
+
+    // Check if there are any staged changes before committing
+    const statusResult = await sandbox.commands.run(
+      `cd '${escapedRepoPath}' && git status --porcelain`
+    );
+    const hasChanges = (statusResult.stdout || "").trim().length > 0;
+
+    if (!hasChanges) {
+      throw new Error(
+        "No file changes were made by the AI — the generated code was identical to the original. " +
+        "The PR cannot be created because there is nothing to commit."
+      );
+    }
+
     await sandbox.commands.run(
       `cd '${escapedRepoPath}' && git commit -m '${escapedCommitMessage}'`
     );

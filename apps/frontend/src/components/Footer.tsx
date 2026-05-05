@@ -45,7 +45,7 @@ const Footer = () => {
             variants={itemVariants}
           >
             <p className="font-sans text-xs sm:text-sm text-muted-foreground">
-              © 2025 100xSWE. All rights reserved.
+              © 2025 humanish. All rights reserved.
             </p>
             <div className="flex gap-4">
               <motion.a
@@ -66,7 +66,7 @@ const Footer = () => {
                 </svg>
               </motion.a>
               <motion.a
-                href="https://github.com/Deepak7704/100xSWE/"
+                href="https://github.com/Deepak7704/humanish/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-10 h-10 rounded-full border border-foreground flex items-center justify-center hover:bg-foreground hover:text-background transition-colors"
@@ -108,3 +108,4 @@ const Footer = () => {
 };
 
 export default Footer;
+

@@ -35,7 +35,7 @@ export default function Dashboard() {
     try {
       setLoadingRepos(true);
       const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
       const response = await fetch(`${backendUrl}/auth/repos`, {
         headers: {
@@ -95,7 +95,7 @@ export default function Dashboard() {
 
     try {
       const backendUrl =
-        process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+        process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
       const response = await fetch(`${backendUrl}/api/chat`, {
         method: "POST",
         headers: {
@@ -173,11 +173,11 @@ export default function Dashboard() {
           <div className="flex items-center gap-3">
             <Image
               src={octopusLogo}
-              alt="100xSWE Logo"
+              alt="humanish Logo"
               width={36}
               height={36}
             />
-            <h1 className="text-xl font-bold text-foreground">100xSWE</h1>
+            <h1 className="text-xl font-bold text-foreground">humanish</h1>
           </div>
 
           {/* User Profile */}
@@ -326,8 +326,8 @@ export default function Dashboard() {
                     </p>
                     <button
                       onClick={() => {
-                        window.location.href =
-                          "https://github.com/apps/100xSWE/installations/new";
+                          const appName = process.env.NEXT_PUBLIC_GITHUB_APP_NAME || "humanish-ai";
+                          window.location.href = `https://github.com/apps/${appName}/installations/new`;
                       }}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-foreground text-background font-medium rounded-full transition-colors hover:bg-gray-800"
                     >
@@ -481,3 +481,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+

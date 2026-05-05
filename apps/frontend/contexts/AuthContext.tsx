@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Memoized to prevent unnecessary re-renders
   const logout = useCallback(async () => {
     const backendUrl =
-      process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+      process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
     // Call backend logout to delete Redis session
     try {
@@ -113,3 +113,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

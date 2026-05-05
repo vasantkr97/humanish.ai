@@ -112,18 +112,57 @@ async function generateCodeNode(
       console.log("Regenerating code to fix errors...\n");
     }
 
-    const generation = await aiService.generateCodeChanges(
-      state.repoUrl,
-      state.task,
-      state.fileContents,
-      state.relevantFiles,
-      state.allFiles,
-      state.keywords,
-      state.packageManager,
-      state.codeSkeletons,
-      previousErrors,
-      state.newFiles
-    );
+    let generation;
+    let lastError: Error | null = null;
+    const maxSchemaRetries = 2;
+
+    for (let attempt = 1; attempt <= maxSchemaRetries; attempt++) {
+      try {
+        generation = await aiService.generateCodeChanges(
+          state.repoUrl,
+          state.task,
+          state.fileContents,
+          state.relevantFiles,
+          state.allFiles,
+          state.keywords,
+          state.packageManager,
+          state.codeSkeletons,
+          attempt > 1
+            ? [
+                ...(previousErrors || []),
+                `CRITICAL SCHEMA ERROR on attempt ${attempt - 1}: Your previous response used the wrong format for 'searchReplace'. ` +
+                  `It MUST be an array of objects like: [{"search": "exact text to find", "replace": "replacement text"}]. ` +
+                  `Do NOT use a plain array of strings like ["old", "new"]. Each element must be an object with 'search' and 'replace' string fields.`,
+              ]
+            : previousErrors,
+          state.newFiles
+        );
+        lastError = null;
+        break; // Success — exit retry loop
+      } catch (err) {
+        lastError = err as Error;
+        const errMsg = lastError.message || "";
+        const isSchemaError =
+          errMsg.includes("No object generated") ||
+          errMsg.includes("Type validation failed") ||
+          errMsg.includes("searchReplace") ||
+          errMsg.includes("invalid_type");
+
+        if (isSchemaError && attempt < maxSchemaRetries) {
+          console.warn(
+            `Attempt ${attempt}/${maxSchemaRetries} failed with schema error — retrying with format correction hint...`
+          );
+          console.warn(`Error: ${errMsg.slice(0, 300)}`);
+        } else {
+          // Not a schema error, or exhausted retries — rethrow
+          throw lastError;
+        }
+      }
+    }
+
+    if (!generation) {
+      throw lastError || new Error("Code generation produced no output after retries");
+    }
 
     console.log("Code generation complete");
     console.log(`  File operations: ${generation.fileOperations.length}`);
@@ -158,6 +197,7 @@ async function generateCodeNode(
     console.error("Code generation failed:", error);
     return {
       status: "failed" as const,
+      currentIteration: state.currentIteration + 1,
       errorMessage: `Code generation failed: ${(error as Error).message}`,
     };
   }
@@ -167,6 +207,16 @@ async function validateCodeNode(
   state: CodeValidationStateType
 ): Promise<Partial<CodeValidationStateType>> {
   console.log("\nValidation Node");
+
+  // Guard: if code generation failed (no generatedCode), skip validation
+  if (!state.generatedCode) {
+    console.warn("Skipping validation — no generated code available (generation failed).");
+    return {
+      allValidationsPassed: false,
+      status: "failed" as const,
+      errorMessage: state.errorMessage || "Code generation produced no output",
+    };
+  }
 
   const validationService = new ValidationService();
 
@@ -335,6 +385,12 @@ async function handleFailureNode(
 function shouldContinue(
   state: CodeValidationStateType
 ): "generate" | "createPR" | "failed" {
+  // Check for explicit failure FIRST — before any other routing
+  if (state.status === "failed") {
+    console.log("\nRouter decision: FAILED (status is failed)");
+    return "failed";
+  }
+
   if (state.allValidationsPassed && state.status === "success") {
     console.log("\nRouter decision: CREATE PR (all validations passed)");
     return "createPR";
@@ -352,11 +408,6 @@ function shouldContinue(
       `\nRouter decision: REGENERATE (iteration ${state.currentIteration}/${state.maxIterations})`
     );
     return "generate";
-  }
-
-  if (state.status === "failed") {
-    console.log("\nRouter decision: FAILED (status is failed)");
-    return "failed";
   }
 
   console.log("\nRouter decision: FAILED (unexpected state)");

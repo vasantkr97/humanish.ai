@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import logoImage from "@/assets/100xSWE_Light.png";
+import logoImage from "@/assets/humanish_Light.png";
 import dbImage from "@/assets/pinecone_logo.png";
 import codeGraph from "@/assets/code_generation_light.png";
 import files from "@/assets/relevant_files.png";
@@ -184,3 +184,4 @@ const ProcessVisualization = () => {
 };
 
 export default ProcessVisualization;
+

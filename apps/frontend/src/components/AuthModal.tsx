@@ -29,8 +29,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const router = useRouter();
 
   const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
-  const githubAppName = "100xSWE";
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+  const githubAppName = process.env.NEXT_PUBLIC_GITHUB_APP_NAME || "humanish-ai";
 
   const handleGitHubLogin = async () => {
     setLoading(true);
@@ -271,3 +271,5 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     </div>
   );
 }
+
+

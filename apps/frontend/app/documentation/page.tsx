@@ -21,7 +21,7 @@ export default function DocumentationPage() {
       <header className="border-b border-black">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-3">
-            100xSWE
+            humanish
           </h1>
           <p className="text-base sm:text-lg md:text-xl text-gray-700">
             Automated Pull Request Generation System with AI-Powered Code
@@ -37,7 +37,7 @@ export default function DocumentationPage() {
           <div className="border-2 border-black overflow-hidden">
             <Image
               src="/Architecture.png"
-              alt="100xSWE System Architecture Diagram"
+              alt="humanish System Architecture Diagram"
               width={1200}
               height={675}
               className="w-full h-auto"
@@ -643,3 +643,4 @@ function EnhancementCard({ title, description }: EnhancementCardProps) {
     </div>
   );
 }
+

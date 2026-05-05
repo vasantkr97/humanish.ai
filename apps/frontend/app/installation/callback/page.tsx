@@ -46,7 +46,7 @@ function InstallationCallbackContent() {
         }
 
         const backendUrl =
-          process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
+          process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
         // Polling configuration
         const maxAttempts = 15; // 30 seconds total
@@ -215,3 +215,4 @@ export default function InstallationCallback() {
     </Suspense>
   );
 }
+
