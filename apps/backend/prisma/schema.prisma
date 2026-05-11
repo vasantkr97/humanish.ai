@@ -51,13 +51,65 @@ model User {
   name            String?              // Display name (can be null)
   avatar          String               // Profile picture URL
   profileUrl      String               // GitHub profile URL
+  credits         Int       @default(0)  // Credits for slop cleanup (0 = free tier)
 
   // Timestamps
   createdAt       DateTime  @default(now())  // When user first signed up
   updatedAt       DateTime  @updatedAt       // Last profile update
   lastLoginAt     DateTime?                  // Last login time (for analytics)
 
+  // Relations
+  slopReports        SlopReport[]
+  creditTransactions CreditTransaction[]
+
   // Indexes for fast lookups
   @@index([githubId])   // Fast lookup by GitHub ID during OAuth
   @@index([username])   // Fast lookup by username
+}
+
+// SlopReport - stores AI slop analysis results per job
+model SlopReport {
+  id            String   @id @default(uuid())
+  jobId         String   @unique           // links to the feature-building BullMQ job
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Report content
+  patterns      Json                       // SlopPattern[] — full analysis results
+  totalCount    Int                        // total number of slop patterns found
+  criticalCount Int                        // security + logic_bug with severity "critical"
+  summary       String                     // 1-2 sentence summary for UI display
+  canAutoFix    Boolean  @default(true)    // false if patterns require human judgment
+
+  // PR context (needed for cleanup job to push to the right branch)
+  repoId        String                     // e.g. "vasantkr97/appointment-slot-booking"
+  branchName    String                     // the branch Humanish pushed to
+  prNumber      Int?                       // GitHub PR number
+
+  // Status lifecycle: pending → fixing → fixed | ignored
+  status        String   @default("pending")
+  cleanupJobId  String?                    // BullMQ job ID of the cleanup job (when status = fixing/fixed)
+  fixedAt       DateTime?                  // when cleanup completed
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([jobId])
+  @@index([userId])
+  @@index([status])
+}
+
+// CreditTransaction - audit trail for all credit changes
+model CreditTransaction {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount       Int                        // negative = spent, positive = added
+  balanceAfter Int                        // snapshot of user.credits after this transaction
+  reason       String                     // "signup_bonus" | "slop_cleanup" | "purchase" | "refund"
+  jobId        String?                    // linked cleanup jobId if reason = "slop_cleanup"
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }

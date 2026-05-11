@@ -5,12 +5,276 @@ import {
 } from "../lib/langsmith";
 import type { Redis } from "ioredis";
 import gemini from "../lib/ai_config";
-import { GenerationSchema, type GenerateOutput } from "@humanish/shared";
+import {
+  GenerationSchema,
+  type GenerateOutput,
+  type FileOperation,
+} from "@humanish/shared";
 import { createFileSearchGraph } from "../workflows/file_search";
 import { extractKeywords } from "../utils/helpers";
 import { HybridSearchService } from "./hybrid-search.service";
 
 export class AIService {
+  private extractJsonObject(text: string): string | null {
+    const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fencedMatch && fencedMatch[1]) {
+      const candidate = fencedMatch[1].trim();
+      return candidate.length > 0 ? candidate : null;
+    }
+
+    const firstBrace = text.indexOf("{");
+    if (firstBrace === -1) {
+      return null;
+    }
+
+    // Extract the first balanced JSON object starting at the first '{'.
+    let depth = 0;
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = firstBrace; i < text.length; i++) {
+      const ch = text[i];
+
+      if (inString) {
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+
+        if (ch === "\\") {
+          escapeNext = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = false;
+        }
+
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (ch === "{") {
+        depth++;
+        continue;
+      }
+
+      if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = text.slice(firstBrace, i + 1).trim();
+          return candidate.length > 0 ? candidate : null;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private repairJsonText(jsonText: string): string {
+    return (
+      jsonText
+        // Remove UTF-8 BOM and other leading noise.
+        .replace(/^\uFEFF/, "")
+        .trim()
+        // Remove trailing commas before closing brackets/braces.
+        .replace(/,\s*([}\]])/g, "$1")
+    );
+  }
+
+  private normalizeSearchReplace(
+    searchReplace: unknown
+  ): Array<{ search: string; replace: string }> {
+    if (!Array.isArray(searchReplace)) {
+      return [];
+    }
+
+    if (
+      searchReplace.every(
+        (entry) =>
+          entry &&
+          typeof entry === "object" &&
+          "search" in entry &&
+          "replace" in entry
+      )
+    ) {
+      return searchReplace
+        .map((entry: any) => ({
+          search: String(entry.search ?? ""),
+          replace: String(entry.replace ?? ""),
+        }))
+        .filter((entry) => entry.search.length > 0);
+    }
+
+    if (searchReplace.every((entry) => typeof entry === "string")) {
+      const repaired: Array<{ search: string; replace: string }> = [];
+
+      for (let i = 0; i < searchReplace.length; i += 2) {
+        const search = searchReplace[i];
+        const replace = searchReplace[i + 1];
+
+        if (typeof search === "string" && typeof replace === "string") {
+          repaired.push({ search, replace });
+        }
+      }
+
+      return repaired;
+    }
+
+    return [];
+  }
+
+  private normalizeFileOperation(operation: any): FileOperation | null {
+    if (!operation || typeof operation !== "object") {
+      return null;
+    }
+
+    const type = String(operation.type ?? "");
+    const path = String(operation.path ?? "");
+
+    if (!type || !path) {
+      return null;
+    }
+
+    if (type === "createFile" || type === "rewriteFile") {
+      return {
+        type,
+        path,
+        content: String(operation.content ?? ""),
+      } as FileOperation;
+    }
+
+    if (type === "updateFile") {
+      return {
+        type,
+        path,
+        searchReplace: this.normalizeSearchReplace(operation.searchReplace),
+      } as FileOperation;
+    }
+
+    if (type === "deleteFile") {
+      return {
+        type,
+        path,
+      } as FileOperation;
+    }
+
+    return null;
+  }
+
+  private repairGenerationCandidate(candidate: any): GenerateOutput {
+    const fileOperations = Array.isArray(candidate?.fileOperations)
+      ? candidate.fileOperations
+          .map((operation: any) => this.normalizeFileOperation(operation))
+          .filter((operation: FileOperation | null): operation is FileOperation => operation !== null)
+      : [];
+
+    const shellCommands = Array.isArray(candidate?.shellCommands)
+      ? candidate.shellCommands.map((command: unknown) => String(command))
+      : typeof candidate?.shellCommands === "string"
+        ? [candidate.shellCommands]
+        : [];
+
+    const explanation =
+      typeof candidate?.explanation === "string" ? candidate.explanation : "";
+
+    return {
+      fileOperations,
+      shellCommands,
+      explanation,
+    };
+  }
+
+  private async fallbackGenerateWithText(prompt: string): Promise<GenerateOutput> {
+    const fallbackPrompt = `${prompt}
+
+RETRY INSTRUCTIONS:
+Return ONLY a valid JSON object (start with '{' end with '}') with:
+- fileOperations: array
+- shellCommands: array
+- explanation: string
+
+Do not include markdown fences or commentary.`;
+
+    const tryParseGeneration = (rawText: string) => {
+      const extracted = this.extractJsonObject(rawText);
+      if (!extracted) {
+        return {
+          ok: false as const,
+          error: `Model did not return a JSON object. Output started with: ${JSON.stringify(
+            rawText.trim().slice(0, 140)
+          )}`,
+        };
+      }
+
+      const repairedJsonText = this.repairJsonText(extracted);
+
+      try {
+        const parsed = JSON.parse(repairedJsonText);
+        return { ok: true as const, parsed };
+      } catch (parseError) {
+        const message =
+          parseError instanceof Error ? parseError.message : String(parseError);
+        return {
+          ok: false as const,
+          error: `JSON parse failed (${message}). Extracted started with: ${JSON.stringify(
+            repairedJsonText.slice(0, 140)
+          )}`,
+        };
+      }
+    };
+
+    const { text: firstText } = await generateText({
+      model: gemini,
+      prompt: fallbackPrompt,
+      maxOutputTokens: 4000,
+    });
+
+    let parsedAttempt = tryParseGeneration(firstText);
+
+    if (!parsedAttempt.ok) {
+      // One more chance: ask the model to strictly reformat its last output into JSON only.
+      const reformatPrompt = `${fallbackPrompt}
+
+YOUR LAST OUTPUT (invalid):
+${firstText}
+
+TASK:
+Rewrite your last output into ONE valid JSON object ONLY.
+It MUST start with '{' and end with '}'.
+No markdown fences. No prose.`;
+
+      const { text: secondText } = await generateText({
+        model: gemini,
+        prompt: reformatPrompt,
+        maxOutputTokens: 4000,
+      });
+
+      parsedAttempt = tryParseGeneration(secondText);
+    }
+
+    if (!parsedAttempt.ok) {
+      throw new Error(`Code generation failed: ${parsedAttempt.error}`);
+    }
+
+    const repaired = this.repairGenerationCandidate(parsedAttempt.parsed);
+    const validation = GenerationSchema.safeParse(repaired);
+
+    if (!validation.success) {
+      throw new Error(
+        `Generation repair failed: ${validation.error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; ")}`
+      );
+    }
+
+    return validation.data as GenerateOutput;
+  }
+
   async findRelevantFiles(
     sandbox: Sandbox,
     repoPath: string,
@@ -324,25 +588,67 @@ YOUR OUTPUT (file paths only):`;
       newFiles
     );
 
-    console.log("Calling generateObject with schema...");
-    const startTime = Date.now();
+    const executeGeneration = async (
+      promptToUse: string,
+      attemptLabel: string
+    ) => {
+      console.log(`Calling generateObject with schema (${attemptLabel})...`);
+      const startTime = Date.now();
 
-    const result = await generateObject({
-      model: gemini,
-      schema: GenerationSchema,
-      prompt,
-    });
+      const result = await generateObject({
+        model: gemini,
+        schema: GenerationSchema,
+        prompt: promptToUse,
+      });
 
-    const duration = Date.now() - startTime;
-    console.log(`generateObject finished in ${duration}ms`);
+      const duration = Date.now() - startTime;
+      console.log(`generateObject finished in ${duration}ms (${attemptLabel})`);
 
-    if (!result.object) {
-      console.error("object is undefined");
-      throw new Error("Generation failed - object is undefined");
+      if (!result.object) {
+        throw new Error("Generation failed - object is undefined");
+      }
+
+      return result.object as GenerateOutput;
+    };
+
+    try {
+      const generation = await executeGeneration(prompt, "attempt 1");
+      console.log("Successfully got generation object");
+      return generation;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[AIService] First generation attempt failed: ${errorMessage}`
+      );
+
+      const retryPrompt = `${prompt}
+
+CRITICAL RETRY NOTE:
+Your previous response failed schema validation.
+- Return ONLY valid structured output matching the schema.
+- searchReplace must be an array of objects with exactly { "search", "replace" }.
+- Do not return flat arrays, prose, markdown, or partial JSON.
+- Ensure fileOperations, shellCommands, and explanation are all present.`;
+
+      try {
+        const generation = await executeGeneration(retryPrompt, "attempt 2");
+        console.log("Successfully got generation object on retry");
+        return generation;
+      } catch (retryError) {
+        const retryMessage =
+          retryError instanceof Error ? retryError.message : String(retryError);
+        console.warn(
+          `[AIService] Structured retry failed: ${retryMessage}. Falling back to text repair.`
+        );
+
+        const repairedGeneration = await this.fallbackGenerateWithText(
+          retryPrompt
+        );
+        console.log("Successfully repaired generation output from text");
+        return repairedGeneration;
+      }
     }
-
-    console.log("Successfully got generation object");
-    return result.object as GenerateOutput;
   }
 
   private buildPrompt(
@@ -481,10 +787,25 @@ Return a JSON object with three fields:
     → Complete, valid, runnable code
     → Include all imports, exports, and necessary code
   
-  - searchReplace: (for updateFile only)
-    → Array of {search: string, replace: string} patterns
-    → Each search string must be EXACT match from original file
-    → Be specific - include surrounding context to avoid wrong matches
+  - searchReplace: (for updateFile ONLY) ⚠️ READ THIS CAREFULLY
+    → This field MUST be an array of OBJECTS. Each object has EXACTLY two keys: "search" and "replace"
+    → "search": the exact text to find (must match verbatim from the file)
+    → "replace": the new text to put in its place
+
+    ✅ CORRECT — array of objects:
+    "searchReplace": [
+      { "search": "const x = 1;", "replace": "const x = 2;" },
+      { "search": "old line", "replace": "new line" }
+    ]
+
+    ❌ WRONG — flat array of strings (DO NOT DO THIS):
+    "searchReplace": ["const x = 1;", "const x = 2;", "old line", "new line"]
+
+    ❌ WRONG — strings instead of objects (DO NOT DO THIS):
+    "searchReplace": ["search string", "replace string"]
+
+    Each entry is ONE object containing BOTH "search" AND "replace".
+    A flat array of strings will be REJECTED by the schema validator.
 
 **shellCommands**: Array of commands (ONLY if absolutely necessary)
   ${packageManagerInstructions}

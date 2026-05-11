@@ -27,15 +27,79 @@ export interface GitHubRepo {
   };
 }
 
-// Job status from backend /api/status endpoint
+export interface SlopPattern {
+  file: string;
+  line?: number;
+  endLine?: number;
+  category:
+    | "logic_bug"
+    | "security"
+    | "code_quality"
+    | "inefficiency"
+    | "context_mismatch";
+  severity: "low" | "medium" | "high" | "critical";
+  description: string;
+  suggestion: string;
+  snippet: string;
+}
+
+export interface SlopMetrics {
+  humanishScore: number;
+  verdict: string;
+  remainingWorkSummary: string;
+  severityBreakdown: Record<SlopPattern["severity"], number>;
+  categoryBreakdown: Partial<Record<SlopPattern["category"], number>>;
+  topPriorities: string[];
+}
+
+export interface SlopReport extends SlopMetrics {
+  totalCount: number;
+  criticalCount: number;
+  byCategory: Partial<Record<SlopPattern["category"], SlopPattern[]>>;
+  byFile: Record<string, SlopPattern[]>;
+  summary: string;
+  canAutoFix: boolean;
+}
+
+export interface SlopReportResponse extends SlopReport {
+  id: string;
+  jobId: string;
+  patterns: SlopPattern[];
+  repoId: string;
+  branchName: string;
+  prNumber: number | null;
+  status: "pending" | "fixing" | "fixed" | "ignored";
+  cleanupJobId: string | null;
+  fixedAt: string | null;
+  createdAt: string;
+}
+
+export interface JobResult {
+  success: boolean;
+  prUrl: string;
+  prNumber: number;
+  branchName: string;
+  fileDiffs: FileDiff[];
+  fileOperations: unknown[];
+  explanation: string;
+  slopReport: SlopReport | null;
+}
+
+export interface FileDiff {
+  path: string;
+  oldContent: string;
+  newContent: string;
+  diffOutput: string;
+}
+
 export interface Job {
   jobId: string;
   state: "waiting" | "active" | "completed" | "failed";
   progress: number;
-  result?: unknown;
+  result?: JobResult;
+  failedReason?: string | null;
 }
 
-// Response from /api/chat endpoint
 export interface ChatResponse {
   message: string;
   indexing: boolean;

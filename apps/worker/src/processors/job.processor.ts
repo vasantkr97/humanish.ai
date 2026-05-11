@@ -316,6 +316,22 @@ export class JobProcessor {
           console.log(`\nPR Created: ${workflowResult.prUrl}`);
           console.log(`PR Number: #${workflowResult.prNumber}`);
 
+          // Log slop analysis results
+          const slopReport = workflowResult.slopReport ?? null;
+          if (slopReport) {
+            if (slopReport.totalCount === 0) {
+              console.log(
+                `\nSlop Analysis: ${slopReport.humanishScore}% Humanish (${slopReport.verdict})`
+              );
+            } else {
+              console.log(
+                `\nSlop Analysis: ${slopReport.totalCount} issue(s) found (${slopReport.criticalCount} critical, ${slopReport.humanishScore}% Humanish)`
+              );
+            }
+          } else {
+            console.log("\nSlop Analysis: No issues found (or analysis skipped)");
+          }
+
           console.log("\nStep 8: Generating file diffs...");
           const fileDiffs = await this.getFileDiffs(
             sandbox,
@@ -333,9 +349,11 @@ export class JobProcessor {
             success: true,
             prUrl: workflowResult.prUrl,
             prNumber: workflowResult.prNumber!,
+            branchName: workflowResult.branchName,
             fileDiffs,
             fileOperations: workflowResult.generatedCode?.fileOperations || [],
             explanation: workflowResult.generatedCode?.explanation || "",
+            slopReport,
           };
         } catch (error) {
           console.error(`Job ${job.id} failed:`, error);
@@ -535,5 +553,159 @@ export class JobProcessor {
     throw new Error(
       `Indexing timeout: Job ${indexingJobId} took longer than ${maxWaitTime / 1000 / 60} minutes`
     );
+  }
+
+  /**
+   * Process a slop cleanup job.
+   * Targets only the identified slop patterns and pushes fixes to the same PR branch.
+   */
+  async processCleanup(job: any): Promise<{
+    success: boolean;
+    fixedCount: number;
+    branchName: string;
+  }> {
+    const {
+      slopReportId,
+      originalJobId,
+      repoId,
+      branchName,
+      prNumber,
+      githubToken,
+      patterns,
+    } = job.data;
+
+    console.log(`Processing slop cleanup for report ${slopReportId}`);
+    console.log(`  Repository: ${repoId}`);
+    console.log(`  Branch: ${branchName}`);
+    console.log(`  Patterns to fix: ${Array.isArray(patterns) ? patterns.length : 0}`);
+
+    const projectId = `slop-cleanup-${job.id}`;
+
+    try {
+      // Step 1: Create sandbox
+      console.log("\nStep 1: Creating sandbox...");
+      const sandbox = await this.sandboxService.getOrCreateSandbox(projectId);
+      console.log("Sandbox ready");
+
+      // Step 2: Clone repo and checkout existing branch
+      console.log("\nStep 2: Cloning repository...");
+      const repoUrl = `https://github.com/${repoId}`;
+      const repoPath = await this.gitService.cloneRepository(
+        sandbox,
+        repoUrl,
+        githubToken
+      );
+
+      // Checkout the existing branch (not creating a new one)
+      console.log(`Checking out branch: ${branchName}`);
+      await sandbox.commands.run(
+        `cd '${repoPath}' && git fetch origin '${branchName}' && git checkout -B '${branchName}' 'origin/${branchName}'`
+      );
+      console.log("Branch checked out");
+
+      // Step 3: Read the files that need fixing
+      console.log("\nStep 3: Reading files to fix...");
+      const filesToFix = [
+        ...new Set(
+          (patterns as any[]).map((p: any) => p.file).filter(Boolean)
+        ),
+      ] as string[];
+
+      const fileContents = await this.sandboxService.getFileContents(
+        sandbox,
+        filesToFix,
+        Infinity,
+        repoPath
+      );
+      console.log(`Read ${fileContents.size} files`);
+
+      // Step 4: Build targeted fix prompt and generate fixes
+      console.log("\nStep 4: Generating targeted fixes...");
+      const fixPrompt = this.buildCleanupPrompt(patterns, fileContents);
+
+      const { tracedGenerateObject: generateObject } = require("../lib/langsmith");
+      const { default: gemini } = require("../lib/ai_config");
+      const { GenerationSchema } = require("@humanish/shared");
+
+      const result = await generateObject({
+        model: gemini,
+        schema: GenerationSchema,
+        prompt: fixPrompt,
+        temperature: 0.1,
+      });
+
+      const generation = result.object;
+      console.log(`Generated ${generation.fileOperations.length} file operations`);
+
+      // Step 5: Execute file operations
+      console.log("\nStep 5: Applying fixes...");
+      await this.sandboxService.executeFileOperations(
+        sandbox,
+        generation.fileOperations,
+        repoPath
+      );
+
+      // Step 6: Commit and push to same branch
+      console.log("\nStep 6: Committing and pushing...");
+      await this.gitService.commitAndPush(
+        sandbox,
+        repoPath,
+        branchName,
+        `fix: remove AI slop patterns\n\nFixed ${(patterns as any[]).length} issues identified by Humanish slop analysis.\nCategories: ${[...new Set((patterns as any[]).map((p: any) => p.category))].join(", ")}`,
+        repoUrl,
+        githubToken,
+        { createBranch: false }
+      );
+
+      console.log(`\nSlop cleanup complete! Branch ${branchName} updated.`);
+
+      await job.updateProgress(100);
+
+      return {
+        success: true,
+        fixedCount: (patterns as any[]).length,
+        branchName,
+      };
+    } catch (error) {
+      console.error(`Slop cleanup job ${job.id} failed:`, error);
+      throw error;
+    } finally {
+      await this.sandboxService.cleanup(projectId);
+    }
+  }
+
+  private buildCleanupPrompt(
+    patterns: any[],
+    fileContents: Map<string, string>
+  ): string {
+    let filesSection = "";
+    fileContents.forEach((content, path) => {
+      filesSection += `\n=== FILE: ${path} ===\n\`\`\`\n${content}\n\`\`\`\n\n`;
+    });
+
+    let issuesSection = "";
+    patterns.forEach((p: any, idx: number) => {
+      issuesSection += `${idx + 1}. [${p.severity.toUpperCase()}] ${p.category} in ${p.file}${p.line ? `:${p.line}` : ""}
+   Problem: ${p.description}
+   Fix: ${p.suggestion}
+   Code: \`${p.snippet}\`\n\n`;
+    });
+
+    return `You are a senior code reviewer fixing specific AI slop patterns.
+
+## CRITICAL RULES
+1. Fix ONLY the specific issues listed below — nothing else
+2. Do NOT change function signatures, API contracts, or business logic
+3. Do NOT add new features or refactor unrelated code
+4. Do NOT change variable names unless specifically listed as an issue
+5. Keep your changes minimal and surgical
+
+## Issues to Fix
+${issuesSection}
+
+## Current File Contents
+${filesSection}
+
+Fix each issue using the suggested fix. Use updateFile with searchReplace operations for targeted edits. Use rewriteFile only if the changes are too extensive for searchReplace.`;
   }
 }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
-import { Loader2, Terminal, CheckCircle2, Circle } from "lucide-react";
+import { Loader2, Terminal, CheckCircle2 } from "lucide-react";
 
 interface SandboxProps {
   jobId: string;
@@ -83,7 +83,6 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
         setCurrentProgress(progress);
         setJobState(state);
 
-        // Add new log entries based on progress milestones
         progressSteps.forEach((step) => {
           if (
             progress >= step.progress &&
@@ -102,7 +101,6 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
 
         lastProgressRef.current = progress;
 
-        // Add completion or error log (only once)
         if (state === "completed" && progress === 100) {
           if (data.result?.prUrl && !prUrlAddedRef.current) {
             prUrlAddedRef.current = true;
@@ -110,12 +108,11 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
               ...prevLogs,
               {
                 type: "success",
-                content: `✓ PR created: ${data.result.prUrl}`,
+                content: `PR created: ${data.result.prUrl}`,
                 timestamp: new Date(),
               },
             ]);
           }
-          // Stop polling once completed
           clearInterval(intervalId);
         } else if (state === "failed") {
           if (!errorAddedRef.current) {
@@ -124,29 +121,24 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
               ...prevLogs,
               {
                 type: "error",
-                content: `✗ Job failed: ${data.result?.error || "Unknown error"}`,
+                content: `Job failed: ${data.failedReason || data.result?.error || "Unknown error"}`,
                 timestamp: new Date(),
               },
             ]);
           }
-          // Stop polling once failed
           clearInterval(intervalId);
         }
-      } catch (error) {
-        // Silently fail - we'll retry on next poll
+      } catch {
+        // Silently fail - we'll retry on next poll.
       }
     };
 
-    // Initial fetch
     fetchJobStatus();
 
-    // Poll every 2 seconds
     const intervalId = setInterval(fetchJobStatus, 2000);
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      clearInterval(intervalId);
     };
   }, [jobId, token]);
 

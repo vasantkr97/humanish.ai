@@ -5,7 +5,8 @@ import { SandboxService } from "../services/sandbox.service";
 import { ValidationService } from "../services/validation.service";
 import { GitService } from "../services/git.service";
 import { GitHubService } from "../services/github.service";
-import type { GenerateOutput } from "@humanish/shared";
+import { SlopAnalyzerService } from "../services/slop_analyzer.service";
+import type { GenerateOutput, SlopReport } from "@humanish/shared";
 import { extractKeywords } from "../utils/helpers";
 
 export const CodeValidationState = Annotation.Root({
@@ -83,6 +84,12 @@ export const CodeValidationState = Annotation.Root({
   }),
 
   errorMessage: Annotation<string | null>({
+    reducer: (_, update) => update,
+    default: () => null,
+  }),
+
+  // Slop analysis result (populated after PR creation as a follow-up review)
+  slopReport: Annotation<SlopReport | null>({
     reducer: (_, update) => update,
     default: () => null,
   }),
@@ -167,6 +174,15 @@ async function validateCodeNode(
   state: CodeValidationStateType
 ): Promise<Partial<CodeValidationStateType>> {
   console.log("\nValidation Node");
+
+  // If code generation failed, don't run validation on the unchanged sandbox
+  if (state.status === "failed") {
+    console.log("  Skipping validation — code generation failed upstream");
+    return {
+      allValidationsPassed: false,
+      validationErrors: state.errorMessage ? [state.errorMessage] : ["Code generation failed"],
+    };
+  }
 
   const validationService = new ValidationService();
 
@@ -332,12 +348,58 @@ async function handleFailureNode(
   };
 }
 
+async function analyzeSlopNode(
+  state: CodeValidationStateType
+): Promise<Partial<CodeValidationStateType>> {
+  console.log("\nSlop Analysis Node");
+
+  try {
+    // Collect files that were actually changed
+    const changedFiles =
+      state.generatedCode?.fileOperations
+        ?.map((op: any) => op.path)
+        .filter(Boolean) ?? [];
+
+    if (changedFiles.length === 0) {
+      console.log("  No changed files to analyze");
+      return { slopReport: null };
+    }
+
+    // Read their current content from the sandbox (already open, no cost)
+    const sandboxService = new SandboxService();
+    const fileContents = await sandboxService.getFileContents(
+      state.sandbox,
+      changedFiles,
+      Infinity,
+      state.repoPath
+    );
+
+    // Run analysis
+    const analyzer = new SlopAnalyzerService();
+    const report = await analyzer.analyze(fileContents, state.task);
+
+    return { slopReport: report };
+  } catch (err) {
+    // NEVER block the PR — swallow any error
+    console.warn(
+      "[SlopAnalysis] Analysis failed, continuing without report:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return { slopReport: null };
+  }
+}
+
 function shouldContinue(
   state: CodeValidationStateType
 ): "generate" | "createPR" | "failed" {
   if (state.allValidationsPassed && state.status === "success") {
-    console.log("\nRouter decision: CREATE PR (all validations passed)");
+    console.log("\nRouter decision: CREATE PR then ANALYZE SLOP (all validations passed)");
     return "createPR";
+  }
+
+  if (state.status === "failed") {
+    console.log("\nRouter decision: FAILED (status is failed)");
+    return "failed";
   }
 
   if (state.currentIteration >= state.maxIterations) {
@@ -354,11 +416,6 @@ function shouldContinue(
     return "generate";
   }
 
-  if (state.status === "failed") {
-    console.log("\nRouter decision: FAILED (status is failed)");
-    return "failed";
-  }
-
   console.log("\nRouter decision: FAILED (unexpected state)");
   return "failed";
 }
@@ -370,6 +427,7 @@ export function createCodeValidationGraph() {
     .addNode("generate", generateCodeNode)
     .addNode("validate", validateCodeNode)
     .addNode("createPR", createPRNode)
+    .addNode("analyzeSlop", analyzeSlopNode)
     .addNode("failed", handleFailureNode)
     .addEdge(START, "generate")
     .addEdge("generate", "validate")
@@ -378,10 +436,12 @@ export function createCodeValidationGraph() {
       createPR: "createPR",
       failed: "failed",
     })
-    .addEdge("createPR", END)
+    .addEdge("createPR", "analyzeSlop")
+    .addEdge("analyzeSlop", END)
     .addEdge("failed", END);
 
   console.log("LangGraph workflow built successfully\n");
+  console.log("  Flow: generate → validate → createPR → analyzeSlop\n");
 
   return workflow.compile();
 }

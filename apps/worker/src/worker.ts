@@ -46,17 +46,53 @@ async function start() {
       console.error(` Chat job ${job?.id} failed:`, err.message);
     });
 
-    console.log(" Chat worker created\n");
+    console.log(" Chat worker created");
+
+    // Slop cleanup worker — dedicated queue, independent scaling
+    const slopCleanupWorker = new Worker(
+      QUEUE_NAMES.SLOP_CLEANUP,
+      async (job) => {
+        console.log("\n" + "=".repeat(70));
+        console.log(`SLOP CLEANUP JOB START - Job ID: ${job.id}`);
+        console.log("=".repeat(70) + "\n");
+
+        const result = await jobProcessor.processCleanup(job);
+
+        console.log("\n" + "=".repeat(70));
+        console.log(`SLOP CLEANUP JOB COMPLETE - Job ID: ${job.id}`);
+        console.log("=".repeat(70) + "\n");
+
+        return result;
+      },
+      {
+        connection,
+        concurrency: 3, // Lower concurrency — these are expensive E2B jobs
+        removeOnComplete: { count: 50 },
+        removeOnFail: { count: 50 },
+      }
+    );
+
+    slopCleanupWorker.on("completed", (job) => {
+      console.log(` Slop cleanup job ${job.id} completed`);
+    });
+
+    slopCleanupWorker.on("failed", (job, err) => {
+      console.error(` Slop cleanup job ${job?.id} failed:`, err.message);
+    });
+
+    console.log(" Slop cleanup worker created\n");
 
     console.log("Workers listening for jobs...\n");
     console.log(`Queue 1: indexing (Repository indexing)`);
     console.log(`Queue 2: worker-job (Chat/Code generation)`);
+    console.log(`Queue 3: slop-cleanup (Slop cleanup jobs)`);
     console.log(`Redis: ${process.env.REDIS_HOST}:${process.env.REDIS_PORT}\n`);
 
     process.on("SIGINT", async () => {
       console.log("\nShutting down workers...");
       await indexingWorker.close();
       await chatWorker.close();
+      await slopCleanupWorker.close();
       process.exit(0);
     });
   } catch (error) {

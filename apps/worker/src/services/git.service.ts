@@ -99,11 +99,15 @@ export class GitService {
     branchName: string,
     commitMessage: string,
     forkUrl: string,
-    githubToken: string
+    githubToken: string,
+    options?: {
+      createBranch?: boolean;
+    }
   ): Promise<void> {
     const escapedRepoPath = repoPath.replace(/'/g, "'\\''");
     const escapedBranchName = branchName.replace(/'/g, "'\\''");
     const escapedCommitMessage = commitMessage.replace(/'/g, "'\\''");
+    const shouldCreateBranch = options?.createBranch ?? true;
 
     await sandbox.commands.run(
       `cd '${escapedRepoPath}' && git config user.email "bot@100xswe.com"`
@@ -112,11 +116,29 @@ export class GitService {
       `cd '${escapedRepoPath}' && git config user.name "100xSWE Bot"`
     );
 
-    await sandbox.commands.run(
-      `cd '${escapedRepoPath}' && git checkout -b '${escapedBranchName}'`
-    );
+    if (shouldCreateBranch) {
+      await sandbox.commands.run(
+        `cd '${escapedRepoPath}' && git checkout -b '${escapedBranchName}'`
+      );
+    } else {
+      await sandbox.commands.run(
+        `cd '${escapedRepoPath}' && git checkout '${escapedBranchName}'`
+      );
+    }
 
     await sandbox.commands.run(`cd '${escapedRepoPath}' && git add .`);
+
+    // Guard: check if there is actually anything to commit
+    const statusResult = await sandbox.commands.run(
+      `cd '${escapedRepoPath}' && git status --porcelain`
+    );
+    if (!statusResult.stdout.trim()) {
+      throw new Error(
+        "Nothing to commit: the AI made no changes to the files. " +
+          "This usually means the task was already implemented or the AI generated no-op operations."
+      );
+    }
+
     await sandbox.commands.run(
       `cd '${escapedRepoPath}' && git commit -m '${escapedCommitMessage}'`
     );

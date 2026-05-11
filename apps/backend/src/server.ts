@@ -9,6 +9,7 @@ import webhookRoute from "../routes/webhook";
 import installationRoute from "../routes/installation";
 import authRoute from "../routes/auth.routes";
 import chatRoute from "../routes/chat";
+import slopRoute from "../routes/slop.routes";
 import { getInstallationForRepo } from "../routes/installation";
 import { getInstallationToken } from "../lib/github_app";
 import { authenticateUser } from "../middleware/auth.middleware";
@@ -450,6 +451,7 @@ app.get("/api/status/:jobId", authenticateUser, async (req, res) => {
       state: state,
       progress: job.progress,
       result: job.returnvalue,
+      failedReason: job.failedReason || null,
     });
   } catch (error: any) {
     console.error("[Job Status Error]", error);
@@ -490,6 +492,7 @@ app.get("/api/job-details/:jobId", authenticateUser, async (req, res) => {
       state,
       progress: job.progress,
       result,
+      failedReason: job.failedReason || null,
       fileDiffs: result?.fileDiffs || [],
       fileOperations: result?.fileOperations || [],
       explanation: result?.explanation || "",
@@ -531,6 +534,7 @@ app.use("/github-webhook", (req, res, next) => {
 
 app.use("/auth", authRoute);
 app.use("/api", chatRoute);
+app.use("/api", slopRoute);
 
 app.use(
   (

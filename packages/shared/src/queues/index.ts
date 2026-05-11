@@ -24,6 +24,7 @@ connection.on("connect", () => {
 export const QUEUE_NAMES = {
   WORKER_JOB: "worker-job", // Type: "worker-job" (literal)
   INDEXING: "indexing",
+  SLOP_CLEANUP: "slop-cleanup",
 } as const;
 
 export const createQueue = (name: string, options?: QueueOptions) => {

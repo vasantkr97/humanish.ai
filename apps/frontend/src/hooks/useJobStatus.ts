@@ -1,20 +1,15 @@
-import { useState, useEffect } from "react";
-
-interface JobStatus {
-  jobId: string;
-  state: "waiting" | "active" | "completed" | "failed";
-  progress: number;
-  result?: {
-    success: boolean;
-    prUrl: string;
-    prNumber: number;
-  };
-}
+import { useState, useEffect, useRef } from "react";
+import type { Job } from "@/types";
 
 export function useJobStatus(jobId: string | null, token: string | null) {
-  const [status, setStatus] = useState<JobStatus | null>(null);
+  const [status, setStatus] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Refs to manage the interval and backoff without re-renders
+  const intervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backoffRef = useRef(10000); // Start at 10s
+  const isFinalRef = useRef(false);
 
   useEffect(() => {
     if (!jobId || !token) {
@@ -25,64 +20,80 @@ export function useJobStatus(jobId: string | null, token: string | null) {
     const backendUrl =
       process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
 
+    const scheduleNext = (delay: number) => {
+      if (isFinalRef.current) return;
+      intervalRef.current = setTimeout(fetchStatus, delay);
+    };
+
     const fetchStatus = async () => {
       try {
-        console.log(`[useJobStatus] Fetching status for job: ${jobId}`);
         const response = await fetch(`${backendUrl}/api/status/${jobId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         });
 
-        console.log(
-          `[useJobStatus] Response status: ${response.status} ${response.statusText}`
-        );
+        // Rate-limited — back off silently, do NOT set error
+        if (response.status === 429) {
+          backoffRef.current = Math.min(backoffRef.current * 2, 60000); // max 60s
+          console.warn(
+            `[useJobStatus] 429 rate limit — backing off to ${backoffRef.current / 1000}s`
+          );
+          scheduleNext(backoffRef.current);
+          return;
+        }
+
+        // Reset backoff on successful response
+        backoffRef.current = 10000;
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.error(
-            `[useJobStatus] Request failed: ${response.status} - ${errorText}`
-          );
-          throw new Error(
-            `Failed to fetch job status: ${response.status} ${response.statusText}`
-          );
+          const msg = `Failed to fetch job status: ${response.status} ${response.statusText}`;
+          console.error(`[useJobStatus] ${msg} — ${errorText}`);
+
+          // 404 = job was removed from queue, stop polling
+          if (response.status === 404) {
+            isFinalRef.current = true;
+            setError("Job not found. It may have expired.");
+            setIsLoading(false);
+            return;
+          }
+
+          // For other errors, show error but keep polling (transient server errors)
+          setError(msg);
+          setIsLoading(false);
+          scheduleNext(15000); // slower retry on server errors
+          return;
         }
 
-        const data = await response.json();
+        const data: Job = await response.json();
         console.log(
-          `[useJobStatus] Job state: ${data.state}, progress: ${data.progress}`
+          `[useJobStatus] state=${data.state} progress=${data.progress}`
         );
 
         setStatus(data);
-        setError(null); // Clear any previous errors
+        setError(null);
         setIsLoading(false);
 
         if (data.state === "completed" || data.state === "failed") {
-          console.log(`[useJobStatus] Job ${data.state}, stopping polling`);
-          clearInterval(intervalId);
+          console.log(`[useJobStatus] Job ${data.state} — stopping polling`);
+          isFinalRef.current = true;
+          return; // no reschedule
         }
+
+        scheduleNext(10000); // Normal 10s interval
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
-        console.error(`[useJobStatus] Error fetching status:`, err);
-        setError(errorMessage);
-        setIsLoading(false);
-        if (errorMessage.includes("404")) {
-          console.log(
-            `[useJobStatus] Job not found (404), stopping polling. Job may have been removed from queue.`
-          );
-          clearInterval(intervalId);
-        }
+        // Network error — retry silently
+        const msg = err instanceof Error ? err.message : "Network error";
+        console.error(`[useJobStatus] Fetch error:`, msg);
+        scheduleNext(15000);
       }
     };
 
+    // Initial fetch immediately
     fetchStatus();
-    const intervalId = setInterval(fetchStatus, 5000); // Reduced from 2000ms to 5000ms
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isFinalRef.current = true;
+      if (intervalRef.current) clearTimeout(intervalRef.current);
     };
   }, [jobId, token]);
 
