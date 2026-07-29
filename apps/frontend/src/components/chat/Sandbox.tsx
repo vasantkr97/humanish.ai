@@ -69,11 +69,15 @@ const E2BSandbox = ({ jobId, token }: SandboxProps) => {
 
     const fetchJobStatus = async () => {
       try {
-        const response = await fetch(`${backendUrl}/api/status/${jobId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await fetch(
+          `${backendUrl}/api/status/${jobId}?t=${Date.now()}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            cache: "no-store",
+          }
+        );
         if (!response.ok) return;
 
         const data = await response.json();

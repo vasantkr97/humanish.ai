@@ -15,6 +15,15 @@ import { extractKeywords } from "../utils/helpers";
 import { HybridSearchService } from "./hybrid-search.service";
 
 export class AIService {
+  private stripMarkdownFence(text: string): string {
+    return text
+      .replace(/^\uFEFF/, "")
+      .trim()
+      .replace(/^```[a-zA-Z0-9_-]*\s*/, "")
+      .replace(/\s*```$/, "")
+      .trim();
+  }
+
   private extractJsonObject(text: string): string | null {
     const fencedMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fencedMatch && fencedMatch[1]) {
@@ -22,7 +31,8 @@ export class AIService {
       return candidate.length > 0 ? candidate : null;
     }
 
-    const firstBrace = text.indexOf("{");
+    const normalizedText = this.stripMarkdownFence(text);
+    const firstBrace = normalizedText.indexOf("{");
     if (firstBrace === -1) {
       return null;
     }
@@ -32,8 +42,8 @@ export class AIService {
     let inString = false;
     let escapeNext = false;
 
-    for (let i = firstBrace; i < text.length; i++) {
-      const ch = text[i];
+    for (let i = firstBrace; i < normalizedText.length; i++) {
+      const ch = normalizedText[i];
 
       if (inString) {
         if (escapeNext) {
@@ -66,13 +76,26 @@ export class AIService {
       if (ch === "}") {
         depth--;
         if (depth === 0) {
-          const candidate = text.slice(firstBrace, i + 1).trim();
+          const candidate = normalizedText.slice(firstBrace, i + 1).trim();
           return candidate.length > 0 ? candidate : null;
         }
       }
     }
 
-    return null;
+    const partialCandidate = normalizedText.slice(firstBrace).trim();
+    return partialCandidate.length > 0 ? partialCandidate : null;
+  }
+
+  private buildJsonFailureMessage(rawText: string, candidateText: string): string {
+    if (candidateText.trimStart().startsWith("{")) {
+      return `JSON parse failed, likely due to truncated or malformed JSON. Extracted started with: ${JSON.stringify(
+        candidateText.slice(0, 140)
+      )}`;
+    }
+
+    return `Model did not return a JSON object. Output started with: ${JSON.stringify(
+      rawText.trim().slice(0, 140)
+    )}`;
   }
 
   private repairJsonText(jsonText: string): string {
@@ -80,6 +103,8 @@ export class AIService {
       jsonText
         // Remove UTF-8 BOM and other leading noise.
         .replace(/^\uFEFF/, "")
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
         .trim()
         // Remove trailing commas before closing brackets/braces.
         .replace(/,\s*([}\]])/g, "$1")
@@ -205,9 +230,7 @@ Do not include markdown fences or commentary.`;
       if (!extracted) {
         return {
           ok: false as const,
-          error: `Model did not return a JSON object. Output started with: ${JSON.stringify(
-            rawText.trim().slice(0, 140)
-          )}`,
+          error: this.buildJsonFailureMessage(rawText, rawText),
         };
       }
 
@@ -221,9 +244,10 @@ Do not include markdown fences or commentary.`;
           parseError instanceof Error ? parseError.message : String(parseError);
         return {
           ok: false as const,
-          error: `JSON parse failed (${message}). Extracted started with: ${JSON.stringify(
-            repairedJsonText.slice(0, 140)
-          )}`,
+          error: `${this.buildJsonFailureMessage(
+            rawText,
+            repairedJsonText
+          )} (${message})`,
         };
       }
     };

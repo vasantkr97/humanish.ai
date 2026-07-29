@@ -415,6 +415,13 @@ app.post("/api/chat", authenticateUser, strictLimiter, async (req, res) => {
 
 app.get("/api/status/:jobId", authenticateUser, async (req, res) => {
   try {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+      Surrogate-Control: "no-store",
+    });
+
     const userId = req.user!.userId;
     const { jobId } = req.params;
 

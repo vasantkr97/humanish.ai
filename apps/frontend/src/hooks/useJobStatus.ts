@@ -17,6 +17,10 @@ export function useJobStatus(jobId: string | null, token: string | null) {
       return;
     }
 
+    isFinalRef.current = false;
+    backoffRef.current = 10000;
+    setIsLoading(true);
+
     const backendUrl =
       process.env.NEXT_PUBLIC_BACKEND_URL || "https://be.100xswe.app";
 
@@ -27,9 +31,13 @@ export function useJobStatus(jobId: string | null, token: string | null) {
 
     const fetchStatus = async () => {
       try {
-        const response = await fetch(`${backendUrl}/api/status/${jobId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await fetch(
+          `${backendUrl}/api/status/${jobId}?t=${Date.now()}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          }
+        );
 
         // Rate-limited — back off silently, do NOT set error
         if (response.status === 429) {
